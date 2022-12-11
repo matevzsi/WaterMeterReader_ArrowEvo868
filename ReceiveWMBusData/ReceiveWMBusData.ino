@@ -66,19 +66,6 @@
   #define LED           17
 #endif
 
-/* Teensy 3.x w/wing
-#define RFM69_RST     9   // "A"
-#define RFM69_CS      10   // "B"
-#define RFM69_IRQ     4    // "C"
-#define RFM69_IRQN    digitalPinToInterrupt(RFM69_IRQ )
-*/
- 
-/* WICED Feather w/wing 
-#define RFM69_RST     PA4     // "A"
-#define RFM69_CS      PB4     // "B"
-#define RFM69_IRQ     PA15    // "C"
-#define RFM69_IRQN    RFM69_IRQ
-*/
 
 // Singleton instance of the radio driver
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
@@ -96,8 +83,7 @@ void setup()
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
 
-  Serial.println("Feather RFM69 RX Test!");
-  Serial.println();
+  Serial.println("\r\nInitializing radio...");  
 
   // manual reset
   digitalWrite(RFM69_RST, HIGH);
@@ -122,6 +108,71 @@ void setup()
   rf69.setModeRx();
 }
 
+
+char tmpc[64];
+
+
+uint8_t LUT[] = { 0x0,	0x0,	0x0,	0x0,	0x0,	0x0,	0x0,	0x0,	0x0,	0x0, 
+                  0x17,	0x2F,	0x49,	0xAB,	0x21,	0xD3,	0xD9,	0xDB,	0x19,	0x2, 
+                  0x2E,	0x5E,	0x93,	0x56,	0x43,	0xA7,	0xB3,	0xB6,	0x32,	0x5, 
+                  0x39,	0x71,	0xDA,	0xFD,	0x62,	0x74,	0x6A,	0x6D,	0x2B,	0x7, 
+                  0x5C,	0xBD,	0x26,	0xAC,	0x87,	0x4F,	0x67,	0x6C,	0x64,	0xA, 
+                  0x4B,	0x92,	0x6F,	0x7,	0xA6,	0x9C,	0xBE,	0xB7,	0x7D,	0x8, 
+                  0x72,	0xE3,	0xB5,	0xFA,	0xC4,	0xE8,	0xD4,	0xDA,	0x56,	0xF, 
+                  0x65,	0xCC,	0xFC,	0x51,	0xE5,	0x3B,	0xD,	0x1,	0x4F,	0xD }; 
+
+uint8_t deltaCodes[] = { 0x12, 0xB5, 0xE2, 0x75, 0x12, 0x2B, 0x72, 0x02, 0xDE, 0, 0, 
+                         0x11, 0x71, 0xD9, 0x6A, 0x7F, 0xDB, 0xBC, 0x4A, 0x6D, 0, 0, 
+                         0x10, 0x2F, 0x48, 0xD9, 0xD5, 0x49, 0x6B, 0xC6, 0x24, 0, 0,
+                         0 };
+
+void parseMADA2Frame(uint8_t * data) {
+  uint8_t deltaCode[10] = {0};
+  uint8_t ci = 0;
+  uint8_t decData[10] = {0};
+
+  uint8_t frameCounter = data[0];
+
+  // Prepare the XOR sum of delta codes known until now
+  while (deltaCodes[ci*11] != 0) {
+    for (int i = 0; i < 10; i++) 
+      deltaCode[i] ^= deltaCodes[ci*11 + i + 1];
+    if (deltaCodes[ci*11] == data[1]) break;
+    ci++;
+  }
+  if (deltaCodes[ci*11] == 0) {
+    Serial.print("Error: Unknown delta code");
+    return;
+  }
+
+  frameCounter = (frameCounter >> 4) - 8;
+  for (int i = 0; i < 10; i++) {
+    decData[i] = data[5 + i] ^ LUT[frameCounter * 10 + i] ^ deltaCode[i];
+  }
+
+  /*
+  Serial.print(" Data: ");
+  for (int i = 0; i < 10; i++) {
+    sprintf(tmpc, "%02X ", decData[i]);
+    Serial.print(tmpc);
+  }
+  */
+
+  uint32_t * meterValue = (uint32_t*)(decData);
+  uint32_t * meterValueCapture = (uint32_t*)(decData + 4);
+  uint16_t * dateCode = (uint16_t*)(decData + 8);
+
+  sprintf(tmpc, "Meter: %ld.%02d m3", *meterValue / 100, (*meterValue) % 100);
+  Serial.print(tmpc);
+
+  sprintf(tmpc, " (captured %ld.%02d m3)", *meterValueCapture / 100, (*meterValueCapture) % 100);
+  Serial.print(tmpc);
+
+  sprintf(tmpc, " date: %04X", *dateCode);
+  Serial.print(tmpc);
+}
+
+
 uint8_t outData[64] = {0};
 
 uint8_t decodeTable[] = {
@@ -130,8 +181,10 @@ uint8_t decodeTable[] = {
   255, 255, 11, 255, 9, 10, 255, 255, 15, 255, 255, 8, 255, 255, 255, 255, 13, 
   14, 255, 12, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 };
 
+//#define IGNORE_ERRORS 1
+
 // Decode message using 6-to-4 bit (3 out of 6) encoding (as specified in EN13757-4 / 5.4.1)
-void decodeMsg(uint8_t * msg, int msgLen) { 
+uint8_t decodeMsg(uint8_t * msg, int msgLen, int RSSI) { 
   uint16_t tmpBuffer = 0;
   int bufferLen = 0;
   uint16_t mask = 0;
@@ -140,53 +193,28 @@ void decodeMsg(uint8_t * msg, int msgLen) {
   int nibblePtr = 0;
   int dataLeft = msgLen;
 
-  char tmpc[64];
-
-  while(dataLeft--) {
-    /*
-    // Print out the tmpBuffer
-    sprintf(tmpc, "Fill data [l=%d] with %02X ", bufferLen, *msg);
-    Serial.print(tmpc);    
-    
-    for (int b = 15; b >= 0; b--) {
-      Serial.print((tmpBuffer & (1<<b)) ? '1' : '0');
-    }
-    Serial.print(" > ");
-    */
+  while(dataLeft--) {   
     mask = 0xFFFF >> bufferLen;
     tmpBuffer &= ~mask;
     tmpBuffer |= (uint16_t)(*msg++) << (8 - bufferLen); // Put the new data into the tmpBuffer
     bufferLen += 8;
-    /*
-    for (int b = 15; b >= 0; b--) {
-      Serial.print((tmpBuffer & (1<<b)) ? '1' : '0');
-    }
-    */
 
     while (bufferLen >= 6) {
-      // Print out the tmpBuffer
-      /*
-      Serial.print("tmpBuffer: ");
-      for (int b = 15; b >= 0; b--) {
-        Serial.print((tmpBuffer & (1<<b)) ? '1' : '0');
-      }
-      Serial.println("");
-      */
-
       // Take out upper 6 bits and decode them
       uint8_t dec = decodeTable[tmpBuffer >> 10];
-      if (dec < 255) {
-        if ((nibblePtr % 2) == 0) {
-          // Upper nibble
-          outData[nibblePtr / 2] = dec << 4;
-        } else {
-          // Lower nibble
-          outData[nibblePtr / 2] |= dec;
-        }
-      } else {
+      if (dec > 15) {
+        dec = 0;
         errorCnt++;
       }
-      nibblePtr++;
+
+      if ((nibblePtr % 2) == 0) {
+        // Upper nibble
+        outData[nibblePtr / 2] = dec << 4;
+      } else {
+        // Lower nibble
+        outData[nibblePtr / 2] |= dec;
+      }     
+      nibblePtr++; 
 
       // Shift the tmpBuffer up for 6 bits
       tmpBuffer <<= 6;
@@ -194,24 +222,28 @@ void decodeMsg(uint8_t * msg, int msgLen) {
     }
   }
 
-  Serial.print(" decoded data, errors=");
-  Serial.print(errorCnt);
-  Serial.print(": ");
-  for (int i = 0; i < msgLen * 4 / 6; i++) {    
-    sprintf(tmpc, "%02X ", outData[i]);
+#ifndef IGNORE_ERRORS
+  if (errorCnt == 0) {  
+#endif
+    sprintf(tmpc, "Frame [%d dB] ", RSSI);
     Serial.print(tmpc);
-  }  
+#ifdef IGNORE_ERRORS
+    Serial.print(" (");
+    Serial.print(errorCnt);
+    Serial.print(" errors)");
+#endif
+    Serial.print(": ");
+    for (int i = 0; i < msgLen * 4 / 6; i++) {    
+      sprintf(tmpc, "%02X ", outData[i]);
+      Serial.print(tmpc);
+    }  
+#ifndef IGNORE_ERRORS
+  }
+#endif
+  return errorCnt;
 }
 
 void loop() {
-  //rf69.spiWrite(0x23, 1);
-
-  digitalWrite(LED,HIGH);
-    delay(100);
-
-  //Serial.println(rf69.spiRead(0x24) / 2.0);
-    digitalWrite(LED,LOW);
-    delay(100);
 
  if (rf69.available()) {
     // Should be a message for us now   
@@ -220,21 +252,71 @@ void loop() {
     if (rf69.recv(buf, &len)) {
       if (!len) return;
       buf[len] = 0;
-      /*
-      Serial.print("Received [");
-      Serial.print(len);
-      Serial.print("]: ");
+          
+      int8_t RSSI = rf69.lastRssi();
+      //Serial.print("\r\nRSSI: ");
+      //Serial.print(rf69.lastRssi(), DEC);      
+      if (decodeMsg(buf, len, RSSI) == 0) {
+        digitalWrite(LED,HIGH);
 
-      for (int i = 0; i < len; i++) {
-        char tmp[4];
-        sprintf(tmp, "%02X ", buf[i]);
-        Serial.print(tmp);
+        // Something received and successfully decoded...
+        uint8_t L = outData[0];
+        uint8_t C = outData[1];
+
+        if (L == 0x19 && C == 0x44) {
+          Serial.print(" T1");
+
+          Serial.print(" ['");
+          uint16_t Mf = (outData[3] << 8) + outData[2];
+          char M[4];
+          M[0] = 'A' + (Mf >> 10) - 1;
+          M[1] = 'A' + ((Mf >> 5) & 31) - 1;
+          M[2] = 'A' + (Mf & 31) - 1;
+          M[3] = 0;
+          Serial.print(M);          
+          sprintf(tmpc, "' %02X%02X%02X%02X%02X%02X]", outData[4], outData[5], outData[6], outData[7], outData[8], outData[9]);
+          Serial.print(tmpc);
+
+          if (outData[4] == 0x81 && outData[5] == 0x07) {
+            //sprintf(tmpc, " => Arrow Evo 868 serial=%02X%02X%02X%02X CRC=%02X%02X", outData[9], outData[8], outData[7], outData[6], outData[10], outData[11]);
+            //Serial.print(tmpc);        
+
+            switch (outData[12]) {
+              case 0xA2:
+                Serial.print(" A2 data: ");
+                parseMADA2Frame(outData + 13);
+                break;
+
+              case 0x51:
+                Serial.print(" Readout data (EN13757-4)");
+                break;
+              case 0x71:
+                Serial.print(" Alarm report (EN13757-4)");
+                break;
+              case 0x72:
+                Serial.print(" Application layer, full header (EN13757-4)");
+                break;
+              case 0x78:
+                Serial.print(" Application layer, no header (EN13757-4)");
+                break;
+              case 0x7A:
+                Serial.print(" Application layer, short header (EN13757-4)");
+                break;
+              case 0x82:
+                Serial.print(" Reserved for future use (EN13757-4)");
+                break;
+
+              default:
+                sprintf(tmpc, "Unknown CI value %02X", outData[12]);
+                Serial.print(tmpc);
+            }
+          }  
+
+          Serial.println("");      
+        }
+        delay(100);
+        digitalWrite(LED,LOW);
       }
-      */
-      //Serial.println((char*)buf);
-      Serial.print("\r\nRSSI: ");
-      Serial.print(rf69.lastRssi(), DEC);      
-      decodeMsg(buf, len);
     } else {
       Serial.println("Receive failed");
     }
