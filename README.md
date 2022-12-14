@@ -49,3 +49,38 @@ We can take a look at the payload section of the frame and observe the XOR betwe
                                                                                                 **17 2F 49 AB 21 D3 D9 DB 19 02**   (XOR of data)
 2022-12-11 13:42:25.844400 Frame [-87 dB] : 19 44 24 34 ?? ?? 13 05 84 17 82 69 A2 9D 10 00 14 B6 FF D4 8F 13 9D F1 57 4C BD 14  T1 ['MAD' ????13058417] A2 data: Meter: 348.19 m3 (captured 345.65 m3) date: 16A4
 ```
+
+If we continue and calculate XOR between two consecutive XOR results of the previous step, even nicer pattern appears...
+```
+     17 2F 49 AB 21 D3 D9 DB 19 02
+XOR  2E 5E 93 56 43 A7 B3 B6 32 05
+     39 71 DA FD 62 74 6A 6D 2B 07
+XOR  2E 5E 93 56 43 A7 B3 B6 32 05    
+     17 2F 49 AB 21 D3 D9 DB 19 02
+XOR  72 E3 B5 FA C4 E8 D4 DA 56 0F    
+     65 CC FC 51 E5 3B 0D 01 4F 0D
+XOR  72 E3 B5 FA C4 E8 D4 DA 56 0F    
+     17 2F 49 AB 21 D3 D9 DB 19 02
+XOR  2E 5E 93 56 43 A7 B3 B6 32 05    
+     39 71 DA FD 62 74 6A 6D 2B 07
+XOR  2E 5E 93 56 43 A7 B3 B6 32 05    
+     17 2F 49 AB 21 D3 D9 DB 19 02
+XOR  72 E3 B5 FA C4 E8 D4 DA 56 0F        
+     65 CC FC 51 E5 3B 0D 01 4F 0D
+XOR  72 E3 B5 FA C4 E8 D4 DA 56 0F        
+     17 2F 49 AB 21 D3 D9 DB 19 02
+```
+
+Once more and we get to a single set of values that are used to permutate the code for each counter value
+```
+     72 E3 B5 FA C4 E8 D4 DA 56 0F
+XOR  5C BD 26 AC 87 4F 67 6C 64 0A
+     2E 5E 93 56 43 A7 B3 B6 32 05 
+```
+
+These permutations appear to be constant and not related to occasional code changes - it appears that only the IV part changes periodically while the actual cipher is retained.
+It is uknown whether the ciper is tied to an actual hardware or not.
+
+By carefully observing how the data changes in the payload section, it was possible to identify the 32-bit (LSB first) water meter counter value and determine the IV. Since the IV changes 
+periodically, but the counter values itself doesn't, one can assume the new IV by simply XOR-ing the known counter value with the new coded message and use that to continue decoding the data.
+
