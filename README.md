@@ -9,6 +9,7 @@ is defined by the counter value.
 
 Coding changes two times per year with one of the fields being subtracted each time (starting at approx. 0x16), which may be related to the battery lifetime (10 years).
 
+## Example data (part of serial number replaced by ??) ##
 ```
 2022-12-11 13:39:32.525703 Frame [-87 dB] : 19 44 24 34 ?? ?? 13 05 84 17 82 69 A2 AD 10 00 14 B6 C6 A5 55 EE FF 85 3D 21 96 13  T1 ['MAD' ????13058417] A2 data: Meter: 348.19 m3 (captured 345.65 m3) date: 16A4
 2022-12-11 13:39:43.871923 Frame [-90 dB] : 19 44 24 34 ?? ?? 13 05 84 17 82 69 A2 BD 10 00 14 B6 D1 8A 1C 45 DE 56 E4 FA 8F 11  T1 ['MAD' ????13058417] A2 data: Meter: 348.19 m3 (captured 345.65 m3) date: 16A4
@@ -26,6 +27,7 @@ Coding changes two times per year with one of the fields being subtracted each t
 2022-12-11 13:42:13.928297 Frame [-87 dB] : 19 44 24 34 ?? ?? 13 05 84 17 82 69 A2 8D 10 00 14 B6 E8 FB C6 B8 BC 22 8E 97 A4 16  T1 ['MAD' ????13058417] A2 data: Meter: 348.19 m3 (captured 345.65 m3) date: 16A4
 2022-12-11 13:42:25.844400 Frame [-87 dB] : 19 44 24 34 ?? ?? 13 05 84 17 82 69 A2 9D 10 00 14 B6 FF D4 8F 13 9D F1 57 4C BD 14  T1 ['MAD' ????13058417] A2 data: Meter: 348.19 m3 (captured 345.65 m3) date: 16A4
 ```
+## Data encoding ##
 
 We can take a look at the payload section of the frame and observe the XOR between two consecutive values - some sort of a pattern appears.
 ```
